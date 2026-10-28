@@ -7,19 +7,20 @@ const userSchema = new mongoose.Schema(
             required: true,
             trim: true,
         },
+
         email: {
             type: String,
             required: true,
             unique: true,
-            lowercase: type,
-            trim: true
+            lowercase: true,
+            trim: true,
         },
+
         phone: {
             type: String,
-            required: true,
-            unique: true,
-            match: /^[0-9]{10}$/,
-
+            trim: true,
+            default: null,
+            match: /^09\d{9}$/,
         },
 
         password: {

@@ -1,9 +1,11 @@
 
+import "dotenv/config";
+
 import express from "express";
 import cors from "cors";
-import "dotenv/config";
+
 import { connectDB } from "./config/db.js";
-import { sendEmail } from "./utils/emailService.js";
+import authRoutes from "./routes/authRoutes.js";
 
 const PORT = process.env.PORT || 5000;
 const app = express();
@@ -12,38 +14,25 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Database
-connectDB();
-
 // Routes
 app.get("/", (req, res) => {
-    res.send("API working");
+    res.status(200).send("FreshMarket API is working");
 });
 
-// Temporary email test route
-app.post("/test-email", async (req, res) => {
-    try {
-        const result = await sendEmail({
-            to: process.env.TEST_EMAIL,
-            subject: "FreshMarket email test",
-            html: "<h1>FreshMarket</h1><p>Email service is connected!</p>",
-        });
+app.use("/api/auth", authRoutes);
 
-        res.status(200).json({
-            success: true,
-            message: "Email request successful",
-            id: result.id,
+// Start server after connecting to the database
+const startServer = async () => {
+    try {
+        await connectDB();
+
+        app.listen(PORT, () => {
+            console.log(`FreshMarket API is running on port ${PORT}`);
         });
     } catch (error) {
-        console.error("Test email failed:", error);
-
-        res.status(500).json({
-            success: false,
-            message: "Could not send test email",
-        });
+        console.error("Failed to start server:", error.message);
+        process.exit(1);
     }
-});
+};
 
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+startServer();

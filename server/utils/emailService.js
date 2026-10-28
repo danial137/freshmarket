@@ -1,6 +1,6 @@
 
 import { Resend } from "resend";
-
+import "dotenv/config";
 const apiKey = process.env.RESEND_API_KEY;
 
 if (!apiKey) {
