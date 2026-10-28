@@ -32,10 +32,40 @@ const userSchema = new mongoose.Schema(
             enum: ["user", "admin"],
             default: "user"
         },
-        
+
         isVerified: {
             type: Boolean,
-            
-        }
+            default: false,
+
+
+        },
+
+        verifyOtp: {
+            type: String,
+            default: null,
+        },
+
+        verifyOtpExpire: {
+            type: Date,
+            default: null,
+        },
+
+        resetOtp: {
+            type: String,
+            default: null,
+
+        },
+
+        resetOtpExpire: {
+            type: Date,
+            default: null,
+        },
+
+    },
+    {
+        timestamps: true
     }
-)
+);
+
+
+export default mongoose.model("User", userSchema)
