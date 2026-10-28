@@ -446,3 +446,172 @@ export const login = async (req, res) => {
     }
 };
 
+export const forgotPassword = async (req, res) => {
+    try {
+        const email = req.body?.email?.trim()?.toLowerCase();
+
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: "Email is required",
+            });
+        }
+
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        const otp = crypto.randomInt(100000, 1000000).toString();
+
+        user.resetOtp = await bcrypt.hash(otp, 10);
+        user.resetOtpExpire = new Date(Date.now() + 10 * 60 * 1000);
+
+        await user.save();
+
+        try {
+            await sendEmail({
+                to: user.email,
+                subject: "FreshMarket - Password Reset",
+                html: `
+          <h2>Reset your FreshMarket password</h2>
+          <p>Hello ${escapeHtml(user.name)},</p>
+          <p>Your password reset code is:</p>
+          <h1>${otp}</h1>
+          <p>This code expires in 10 minutes.</p>
+        `,
+            });
+        } catch (emailError) {
+            console.error("Password reset email failed:", emailError.message);
+
+            user.resetOtp = null;
+            user.resetOtpExpire = null;
+            await user.save();
+
+            return res.status(503).json({
+                success: false,
+                message: "Unable to send reset email. Please try again later.",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset OTP sent successfully.",
+        });
+    } catch (error) {
+        console.error("Forgot password failed:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+
+export const resetPassword = async (req, res) => {
+    try {
+        const email = req.body?.email?.trim()?.toLowerCase();
+        const { otp, password } = req.body ?? {};
+
+        if (!email || !otp || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Email, OTP and password are required",
+            });
+        }
+
+        if (typeof otp !== "string" || !/^\d{6}$/.test(otp)) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP must be a 6-digit code",
+            });
+        }
+
+        if (
+            typeof password !== "string" ||
+            password.length < 8 ||
+            password.length > 72
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Password must be between 8 and 72 characters",
+            });
+        }
+
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
+
+        if (
+            !user.resetOtp ||
+            !user.resetOtpExpire ||
+            new Date(user.resetOtpExpire).getTime() < Date.now()
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP expired. Please request a new OTP.",
+            });
+        }
+
+        const isOtpValid = await bcrypt.compare(otp, user.resetOtp);
+
+        if (!isOtpValid) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid OTP",
+            });
+        }
+
+        user.password = await bcrypt.hash(password, 12);
+        user.resetOtp = null;
+        user.resetOtpExpire = null;
+
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Password reset successful.",
+        });
+    } catch (error) {
+        console.error("Reset password failed:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+export const getProfile = async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({
+                success: false,
+                message: "Authentication required",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            user: req.user,
+        });
+    } catch (error) {
+        console.error("Get profile failed:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+

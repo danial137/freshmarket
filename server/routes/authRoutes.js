@@ -6,8 +6,12 @@ import {
     register,
     verifyEmailOtp,
     resendEmailOtp,
-    login
+    login,
+    forgotPassword,
+    getProfile,
+    resetPassword
 } from "../controllers/authController.js";
+import { authMiddlewere } from "../middleware/authmiddleware.js";
 
 const router = Router();
 
@@ -45,5 +49,8 @@ router.post("/register", registerLimiter, register);
 router.post("/verify-email", verifyOtpLimiter, verifyEmailOtp);
 router.post("/resend-otp", resendOtpLimiter, resendEmailOtp);
 router.post("/login", login);
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
+router.get("/profile", authMiddlewere, getProfile);
 
 export default router;
