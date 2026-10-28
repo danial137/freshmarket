@@ -6,6 +6,7 @@ import {
     register,
     verifyEmailOtp,
     resendEmailOtp,
+    login
 } from "../controllers/authController.js";
 
 const router = Router();
@@ -43,5 +44,6 @@ const resendOtpLimiter = createRateLimiter(
 router.post("/register", registerLimiter, register);
 router.post("/verify-email", verifyOtpLimiter, verifyEmailOtp);
 router.post("/resend-otp", resendOtpLimiter, resendEmailOtp);
+router.post("/login", login);
 
 export default router;

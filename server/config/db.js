@@ -1,7 +1,19 @@
+
+import "dotenv/config";
 import mongoose from "mongoose";
 
-export const connectDB = async  () => {
-    await mongoose.connect("mongodb+srv://danial79fakhrabadi_db_user:p57HP9xEzkNgTVKH@cluster0.h6ctyah.mongodb.net/freshmarket").then(() => {
-        console.log("DB IS CONNECTED")
-    })
-}
+export const connectDB = async () => {
+    const uri = process.env.MONGODB_URI;
+
+    if (!uri) {
+        throw new Error("MONGODB_URI is missing from environment variables");
+    }
+
+    try {
+        await mongoose.connect(uri);
+        console.log("MongoDB connected successfully");
+    } catch (error) {
+        console.error("MongoDB connection failed:", error.message);
+        throw error;
+    }
+};
