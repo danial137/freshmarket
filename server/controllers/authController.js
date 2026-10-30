@@ -1,37 +1,72 @@
 
-import crypto from "node:crypto";
 import bcrypt from "bcrypt";
-import User from "../models/User.js";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
+
+import User from "../models/User.js";
 import { sendEmail } from "../utils/emailService.js";
+import { generateOtp, hashOtp } from "../utils/otp.js";
 
-const hashOtp = (otp) =>
-    crypto.createHash("sha256").update(otp).digest("hex");
+// -------------------- Helpers --------------------
 
-const escapeHtml = (value) =>
-    String(value).replace(/[&<>"']/g, (char) => {
-        const entities = {
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;",
-        };
+const normalizeEmail = (email) => {
+    if (typeof email !== "string") return null;
 
-        return entities[char];
-    });
+    const normalized = email.trim().toLowerCase();
+
+    if (
+        normalized.length > 254 ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+    ) {
+        return null;
+    }
+
+    return normalized;
+};
+
+const escapeHtml = (value) => {
+    const entities = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+    };
+
+    return String(value).replace(/[&<>"']/g, (char) => entities[char]);
+};
+
+const isValidOtp = (otp, storedHash) => {
+    if (
+        typeof otp !== "string" ||
+        !/^\d{6}$/.test(otp) ||
+        typeof storedHash !== "string" ||
+        !/^[a-f0-9]{64}$/i.test(storedHash)
+    ) {
+        return false;
+    }
+
+    const submittedHash = Buffer.from(hashOtp(otp), "hex");
+    const savedHash = Buffer.from(storedHash, "hex");
+
+    return (
+        submittedHash.length === savedHash.length &&
+        crypto.timingSafeEqual(submittedHash, savedHash)
+    );
+};
+
+const OTP_EXPIRATION = 10 * 60 * 1000;
+
+// -------------------- Register --------------------
 
 export const register = async (req, res) => {
     try {
-        const { name, email, password, phone } = req.body;
+        const { name, email, password, phone } = req.body ?? {};
 
-        // 1. Validate required fields
         if (
             typeof name !== "string" ||
-            typeof email !== "string" ||
-            typeof password !== "string" ||
             !name.trim() ||
-            !email.trim() ||
+            typeof password !== "string" ||
             !password
         ) {
             return res.status(400).json({
@@ -41,26 +76,19 @@ export const register = async (req, res) => {
         }
 
         const normalizedName = name.trim();
-        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedEmail = normalizeEmail(email);
 
-        if (normalizedName.length > 100) {
-            return res.status(400).json({
-                success: false,
-                message: "Name must be at most 100 characters.",
-            });
-        }
-
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        if (!normalizedEmail) {
             return res.status(400).json({
                 success: false,
                 message: "Please enter a valid email address.",
             });
         }
 
-        if (normalizedEmail.length > 254) {
+        if (normalizedName.length > 100) {
             return res.status(400).json({
                 success: false,
-                message: "Email address is too long.",
+                message: "Name must be at most 100 characters.",
             });
         }
 
@@ -86,12 +114,11 @@ export const register = async (req, res) => {
             if (!/^09\d{9}$/.test(normalizedPhone)) {
                 return res.status(400).json({
                     success: false,
-                    message: "Phone number must be a valid Iranian mobile number.",
+                    message: "Please enter a valid Iranian mobile number.",
                 });
             }
         }
 
-        // 2. Check whether email already exists
         const existingUser = await User.findOne({
             email: normalizedEmail,
         });
@@ -103,7 +130,6 @@ export const register = async (req, res) => {
             });
         }
 
-        // 3. Check phone only if provided
         if (normalizedPhone) {
             const existingPhone = await User.findOne({
                 phone: normalizedPhone,
@@ -117,27 +143,20 @@ export const register = async (req, res) => {
             }
         }
 
-        // 4. Hash the password
-        const hashedPassword = await bcrypt.hash(password, 12);
+        const otp = generateOtp();
 
-        // 5. Generate a six-digit OTP
-        const otp = crypto.randomInt(100000, 1000000).toString();
-        const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-        // 6. Create an unverified account
         const user = new User({
             name: normalizedName,
             email: normalizedEmail,
             ...(normalizedPhone ? { phone: normalizedPhone } : {}),
-            password: hashedPassword,
+            password: await bcrypt.hash(password, 12),
             isVerified: false,
             verifyOtp: hashOtp(otp),
-            verifyOtpExpire: otpExpiresAt,
+            verifyOtpExpire: new Date(Date.now() + OTP_EXPIRATION),
         });
 
         await user.save();
 
-        // 7. Send the verification email
         try {
             await sendEmail({
                 to: normalizedEmail,
@@ -160,11 +179,10 @@ export const register = async (req, res) => {
             return res.status(503).json({
                 success: false,
                 message:
-                    "Your account was created but the verification email could not be sent. Please request a new code.",
+                    "Your account was created, but the verification email could not be sent. Please request a new code.",
             });
         }
 
-        // 8. Respond without returning the password or OTP
         return res.status(201).json({
             success: true,
             message: "Account created. Check your email for the verification code.",
@@ -187,25 +205,19 @@ export const register = async (req, res) => {
     }
 };
 
-
+// -------------------- Verify Email --------------------
 
 export const verifyEmailOtp = async (req, res) => {
     try {
-        const { email, otp } = req.body;
+        const { email, otp } = req.body ?? {};
+        const normalizedEmail = normalizeEmail(email);
 
-        if (
-            typeof email !== "string" ||
-            typeof otp !== "string" ||
-            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-            !/^\d{6}$/.test(otp)
-        ) {
+        if (!normalizedEmail || typeof otp !== "string" || !/^\d{6}$/.test(otp)) {
             return res.status(400).json({
                 success: false,
                 message: "Please provide a valid email and six-digit OTP.",
             });
         }
-
-        const normalizedEmail = email.trim().toLowerCase();
 
         const user = await User.findOne({ email: normalizedEmail });
 
@@ -226,7 +238,7 @@ export const verifyEmailOtp = async (req, res) => {
         if (
             !user.verifyOtp ||
             !user.verifyOtpExpire ||
-            user.verifyOtpExpire.getTime() <= Date.now()
+            new Date(user.verifyOtpExpire).getTime() <= Date.now()
         ) {
             return res.status(400).json({
                 success: false,
@@ -234,17 +246,7 @@ export const verifyEmailOtp = async (req, res) => {
             });
         }
 
-        const submittedHash = crypto
-            .createHash("sha256")
-            .update(otp)
-            .digest();
-
-        const storedHash = Buffer.from(user.verifyOtp, "hex");
-
-        if (
-            storedHash.length !== submittedHash.length ||
-            !crypto.timingSafeEqual(storedHash, submittedHash)
-        ) {
+        if (!isValidOtp(otp, user.verifyOtp)) {
             return res.status(400).json({
                 success: false,
                 message: "Invalid email or verification code.",
@@ -271,27 +273,20 @@ export const verifyEmailOtp = async (req, res) => {
     }
 };
 
-
+// -------------------- Resend Verification OTP --------------------
 
 export const resendEmailOtp = async (req, res) => {
     try {
-        const { email } = req.body;
+        const normalizedEmail = normalizeEmail(req.body?.email);
 
-        if (
-            typeof email !== "string" ||
-            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
-        ) {
+        if (!normalizedEmail) {
             return res.status(400).json({
                 success: false,
                 message: "Please provide a valid email address.",
             });
         }
 
-        const normalizedEmail = email.trim().toLowerCase();
-
-        const user = await User.findOne({
-            email: normalizedEmail,
-        });
+        const user = await User.findOne({ email: normalizedEmail });
 
         if (!user) {
             return res.status(404).json({
@@ -307,10 +302,10 @@ export const resendEmailOtp = async (req, res) => {
             });
         }
 
-        const otp = crypto.randomInt(100000, 1000000).toString();
+        const otp = generateOtp();
 
         user.verifyOtp = hashOtp(otp);
-        user.verifyOtpExpire = new Date(Date.now() + 10 * 60 * 1000);
+        user.verifyOtpExpire = new Date(Date.now() + OTP_EXPIRATION);
 
         await user.save();
 
@@ -325,14 +320,14 @@ export const resendEmailOtp = async (req, res) => {
             <div style="font-size:32px;font-weight:bold;letter-spacing:8px">
               ${otp}
             </div>
-            <p>This code expires in 10 minutes. Your previous code is no longer valid.</p>
+            <p>This code expires in 10 minutes.</p>
+            <p>Your previous code is no longer valid.</p>
           </div>
         `,
             });
         } catch (emailError) {
             console.error("Resend OTP email failed:", emailError.message);
 
-            // Invalidate the code that was not successfully sent.
             user.verifyOtp = null;
             user.verifyOtpExpire = null;
             await user.save();
@@ -357,28 +352,21 @@ export const resendEmailOtp = async (req, res) => {
     }
 };
 
+// -------------------- Login --------------------
 
 export const login = async (req, res) => {
     try {
         const { email, password } = req.body ?? {};
+        const normalizedEmail = normalizeEmail(email);
 
-        // Check required fields
-        if (
-            typeof email !== "string" ||
-            typeof password !== "string" ||
-            !email.trim() ||
-            !password
-        ) {
+        if (!normalizedEmail || typeof password !== "string" || !password) {
             return res.status(400).json({
                 success: false,
-                message: "Email and password are required.",
+                message: "A valid email and password are required.",
             });
         }
 
-        // Find user by email
-        const user = await User.findOne({
-            email: email.trim().toLowerCase(),
-        });
+        const user = await User.findOne({ email: normalizedEmail });
 
         if (!user) {
             return res.status(401).json({
@@ -387,11 +375,7 @@ export const login = async (req, res) => {
             });
         }
 
-        // Compare password with hashed password
-        const isPasswordValid = await bcrypt.compare(
-            password,
-            user.password
-        );
+        const isPasswordValid = await bcrypt.compare(password, user.password);
 
         if (!isPasswordValid) {
             return res.status(401).json({
@@ -400,7 +384,6 @@ export const login = async (req, res) => {
             });
         }
 
-        // Require email verification
         if (!user.isVerified) {
             return res.status(403).json({
                 success: false,
@@ -408,12 +391,10 @@ export const login = async (req, res) => {
             });
         }
 
-        // Check JWT secret
         if (!process.env.JWT_SECRET) {
             throw new Error("JWT_SECRET is not configured.");
         }
 
-        // Generate JWT
         const token = jwt.sign(
             {
                 userId: user._id.toString(),
@@ -446,30 +427,34 @@ export const login = async (req, res) => {
     }
 };
 
+// -------------------- Forgot Password --------------------
+
 export const forgotPassword = async (req, res) => {
     try {
-        const email = req.body?.email?.trim()?.toLowerCase();
+        const normalizedEmail = normalizeEmail(req.body?.email);
 
-        if (!email) {
+        if (!normalizedEmail) {
             return res.status(400).json({
                 success: false,
-                message: "Email is required",
+                message: "Please provide a valid email address.",
             });
         }
 
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: normalizedEmail });
 
+        // Do not reveal whether an account exists.
         if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found",
+            return res.status(200).json({
+                success: true,
+                message:
+                    "If an account exists with this email, a password reset code will be sent.",
             });
         }
 
-        const otp = crypto.randomInt(100000, 1000000).toString();
+        const otp = generateOtp();
 
-        user.resetOtp = await bcrypt.hash(otp, 10);
-        user.resetOtpExpire = new Date(Date.now() + 10 * 60 * 1000);
+        user.resetOtp = hashOtp(otp);
+        user.resetOtpExpire = new Date(Date.now() + OTP_EXPIRATION);
 
         await user.save();
 
@@ -478,11 +463,16 @@ export const forgotPassword = async (req, res) => {
                 to: user.email,
                 subject: "FreshMarket - Password Reset",
                 html: `
-          <h2>Reset your FreshMarket password</h2>
-          <p>Hello ${escapeHtml(user.name)},</p>
-          <p>Your password reset code is:</p>
-          <h1>${otp}</h1>
-          <p>This code expires in 10 minutes.</p>
+          <div style="font-family:Arial,sans-serif;max-width:500px;margin:auto">
+            <h2>Reset your FreshMarket password</h2>
+            <p>Hello ${escapeHtml(user.name)},</p>
+            <p>Your password reset code is:</p>
+            <div style="font-size:32px;font-weight:bold;letter-spacing:8px">
+              ${otp}
+            </div>
+            <p>This code expires in 10 minutes.</p>
+            <p>If you did not request this, you can ignore this email.</p>
+          </div>
         `,
             });
         } catch (emailError) {
@@ -500,62 +490,64 @@ export const forgotPassword = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: "Password reset OTP sent successfully.",
+            message:
+                "If an account exists with this email, a password reset code will be sent.",
         });
     } catch (error) {
         console.error("Forgot password failed:", error.message);
 
         return res.status(500).json({
             success: false,
-            message: "Internal server error",
+            message: "Internal server error.",
         });
     }
 };
 
+// -------------------- Reset Password --------------------
 
 export const resetPassword = async (req, res) => {
     try {
-        const email = req.body?.email?.trim()?.toLowerCase();
+        const normalizedEmail = normalizeEmail(req.body?.email);
         const { otp, password } = req.body ?? {};
 
-        if (!email || !otp || !password) {
-            return res.status(400).json({
-                success: false,
-                message: "Email, OTP and password are required",
-            });
-        }
-
-        if (typeof otp !== "string" || !/^\d{6}$/.test(otp)) {
-            return res.status(400).json({
-                success: false,
-                message: "OTP must be a 6-digit code",
-            });
-        }
-
         if (
-            typeof password !== "string" ||
-            password.length < 8 ||
-            password.length > 72
+            !normalizedEmail ||
+            typeof otp !== "string" ||
+            typeof password !== "string"
         ) {
             return res.status(400).json({
                 success: false,
-                message: "Password must be between 8 and 72 characters",
+                message: "Email, OTP and password are required.",
             });
         }
 
-        const user = await User.findOne({ email });
+        if (!/^\d{6}$/.test(otp)) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP must be a six-digit code.",
+            });
+        }
+
+        if (password.length < 8 || password.length > 72) {
+            return res.status(400).json({
+                success: false,
+                message: "Password must be between 8 and 72 characters.",
+            });
+        }
+
+        const user = await User.findOne({ email: normalizedEmail });
 
         if (!user) {
-            return res.status(404).json({
+            return res.status(400).json({
                 success: false,
-                message: "User not found",
+                message: "Invalid email or OTP.",
             });
         }
 
         if (
             !user.resetOtp ||
             !user.resetOtpExpire ||
-            new Date(user.resetOtpExpire).getTime() < Date.now()
+            new Date(user.resetOtpExpire).getTime() <= Date.now()
         ) {
             return res.status(400).json({
                 success: false,
@@ -563,12 +555,10 @@ export const resetPassword = async (req, res) => {
             });
         }
 
-        const isOtpValid = await bcrypt.compare(otp, user.resetOtp);
-
-        if (!isOtpValid) {
+        if (!isValidOtp(otp, user.resetOtp)) {
             return res.status(400).json({
                 success: false,
-                message: "Invalid OTP",
+                message: "Invalid email or OTP.",
             });
         }
 
@@ -587,17 +577,19 @@ export const resetPassword = async (req, res) => {
 
         return res.status(500).json({
             success: false,
-            message: "Internal server error",
+            message: "Internal server error.",
         });
     }
 };
+
+// -------------------- Get Profile --------------------
 
 export const getProfile = async (req, res) => {
     try {
         if (!req.user) {
             return res.status(401).json({
                 success: false,
-                message: "Authentication required",
+                message: "Authentication required.",
             });
         }
 
@@ -610,8 +602,7 @@ export const getProfile = async (req, res) => {
 
         return res.status(500).json({
             success: false,
-            message: "Internal server error",
+            message: "Internal server error.",
         });
     }
 };
-

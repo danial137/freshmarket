@@ -1,30 +1,53 @@
 
-import { Resend } from "resend";
 import "dotenv/config";
-const apiKey = process.env.RESEND_API_KEY;
+import { BrevoClient } from "@getbrevo/brevo";
+
+const apiKey = process.env.BREVO_API_KEY;
+const senderEmail = process.env.BREVO_SENDER_EMAIL;
+const senderName = process.env.BREVO_SENDER_NAME || "FreshMarket";
 
 if (!apiKey) {
-    throw new Error("RESEND_API_KEY is missing from environment variables");
+    throw new Error("BREVO_API_KEY is missing from environment variables");
 }
 
-const resend = new Resend(apiKey);
+if (!senderEmail) {
+    throw new Error("BREVO_SENDER_EMAIL is missing from environment variables");
+}
 
-export async function sendEmail({ to, subject, html }) {
+const brevo = new BrevoClient({
+    apiKey,
+    timeoutInSeconds: 30,
+    maxRetries: 2,
+});
+
+export const sendEmail = async ({ to, subject, html }) => {
     if (!to || !subject || !html) {
-        throw new Error("Email recipient, subject, and html are required");
+        throw new Error("Recipient, subject, and HTML are required");
     }
 
-    const { data, error } = await resend.emails.send({
-        from: "FreshMarket <onboarding@resend.dev>",
-        to: Array.isArray(to) ? to : [to],
-        subject,
-        html,
-    });
+    try {
+        const recipients = Array.isArray(to) ? to : [to];
 
-    if (error) {
-        console.error("Resend email error:", error);
-        throw new Error("Failed to send email");
+        const result = await brevo.transactionalEmails.sendTransacEmail({
+            sender: {
+                name: senderName,
+                email: senderEmail,
+            },
+            to: recipients.map((email) => ({ email })),
+            subject,
+            htmlContent: html,
+        });
+
+        console.log("Email sent successfully:", result.messageId);
+
+        return result;
+    } catch (error) {
+        console.error("Brevo email error:", {
+            statusCode: error.statusCode,
+            message: error.message,
+            body: error.body,
+        });
+
+        throw new Error("Failed to send email through Brevo");
     }
-
-    return data;
-}
+};
