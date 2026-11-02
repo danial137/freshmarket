@@ -23,9 +23,29 @@ const ensureUploadDirectory = () => {
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         try {
-            ensureUploadDirectory
+            ensureUploadDirectory()
+            cb(null,uploadDir)
         } catch (error) {
+
+            cb(error)
             
         }
+    },
+
+    filename: (req, file, cb) => {
+        
+        try {
+            cb(null,Date.now()+path.extname(file.originalname))
+        } catch (error) {
+
+            cb(error)
+            
+        }
+        
     }
 })
+
+
+const upload = multer({ storage });
+
+export default upload
