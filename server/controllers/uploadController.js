@@ -16,7 +16,7 @@ export const uploadImg = async (req, res) => {
 
         try {
             if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
-        } catch (error) {
+        } catch (cleanupError) {
             console.log("Local upload cleanup failed:", cleanupError.message)
         }
 

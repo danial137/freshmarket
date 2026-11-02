@@ -6,6 +6,8 @@ import cors from "cors";
 
 import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
+import uploadRoutes from"./routes/uploadRoutes.js"
+
 
 const PORT = process.env.PORT || 5000;
 const app = express();
@@ -21,6 +23,7 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 
+app.use("api/upload",uploadRoutes)
 // Start server after connecting to the database
 const startServer = async () => {
     try {
