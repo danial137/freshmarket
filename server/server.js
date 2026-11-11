@@ -6,7 +6,8 @@ import cors from "cors";
 
 import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
-import uploadRoutes from"./routes/uploadRoutes.js"
+import uploadRoutes from "./routes/uploadRoutes.js";
+import categoryRoutes from "./routes/categoryRoutes.js"
 
 
 const PORT = process.env.PORT || 5000;
@@ -15,7 +16,6 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
-
 // Routes
 app.get("/", (req, res) => {
     res.status(200).send("FreshMarket API is working");
@@ -23,7 +23,10 @@ app.get("/", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 
-app.use("api/upload",uploadRoutes)
+app.use("api/upload", uploadRoutes)
+
+app.use("/api/categories",categoryRoutes)
+
 // Start server after connecting to the database
 const startServer = async () => {
     try {

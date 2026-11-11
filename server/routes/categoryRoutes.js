@@ -9,4 +9,8 @@ router.post("/add", authMiddlewere, addCategory);
 router.get("/", getCategories)
 router.get("/:id", getCategory)
 router.put("/:id", authMiddlewere, updateCategory)
-router.delete("/:id",authMiddlewere,deleteCategory)
+router.delete("/:id", authMiddlewere, deleteCategory)
+
+
+
+export default router
