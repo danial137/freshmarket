@@ -29,6 +29,11 @@ export const addProduct = async (req, res) => {
 export const getProduct = async (req, res) => {
     try {
 
+        const { category } = req.query
+        const filter = category ? { category } : {}
+        const product = await Product.find(filter);
+        res.status(200).json({ success: true, count: product.length, product })
+
     } catch (error) {
 
     }
